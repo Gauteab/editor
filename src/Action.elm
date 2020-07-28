@@ -10,5 +10,9 @@ type Action
     | LastChild
       -- Editing
     | Delete
+    | InsertText String
+    | AddNode String
     | Lift -- (replace parent with focus node)
+    | SwapRight
+    | SwapLeft
     | ReverseChildren

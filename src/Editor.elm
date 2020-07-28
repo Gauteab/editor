@@ -52,7 +52,7 @@ init =
                 |> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
-        |> steps [ LastChild, FirstChild, NextSibling ]
+        |> steps [ LastChild, FirstChild, NextSibling, FirstChild, SwapRight, SwapRight, SwapLeft ]
 
 
 
@@ -80,11 +80,61 @@ step action { nextId, zipper } =
         Delete ->
             Editor nextId zipper
 
+        InsertText s ->
+            Debug.todo ""
+
+        AddNode s ->
+            Debug.todo ""
+
         Lift ->
-            Editor nextId zipper
+            Editor nextId
+                (Zipper.parent zipper
+                    |> (Maybe.map << Zipper.mapTree << always << Zipper.tree) zipper
+                    |> Maybe.withDefault zipper
+                )
+
+        SwapRight ->
+            swapWith Zipper.nextSibling zipper
+                |> Maybe.withDefault zipper
+                |> Editor nextId
+
+        SwapLeft ->
+            swapWith Zipper.previousSibling zipper
+                |> Maybe.withDefault zipper
+                |> Editor nextId
 
         ReverseChildren ->
             Editor nextId (Zipper.mapTree (Tree.mapChildren List.reverse) zipper)
+
+
+swapWith f zipper =
+    let
+        swapTwoTrees t1 t2 t =
+            if treeId t == treeId t1 then
+                t2
+
+            else if treeId t == treeId t2 then
+                t1
+
+            else
+                t
+    in
+    f zipper
+        |> Maybe.andThen
+            (\sibling ->
+                Zipper.parent zipper
+                    |> (Maybe.map << Zipper.mapTree << Tree.mapChildren << List.map)
+                        (swapTwoTrees (Zipper.tree zipper) (Zipper.tree sibling))
+                    |> (Maybe.andThen << Zipper.findNext) (\a -> a.id == zipperId zipper)
+            )
+
+
+zipperId =
+    Zipper.label >> .id
+
+
+treeId =
+    Tree.label >> .id
 
 
 steps : List Action -> Editor -> Editor
@@ -178,7 +228,7 @@ processRawFile rawFile =
                     leaf (String.fromInt i) "int"
 
                 FunctionOrValue _ s ->
-                    leaf s "id"
+                    leaf s "treeId"
 
                 _ ->
                     Debug.todo (Debug.toString e)
@@ -196,7 +246,7 @@ processRawFile rawFile =
                             N.value function.declaration
                     in
                     node "assignment"
-                        [ leaf (N.value implementation.name) "id"
+                        [ leaf (N.value implementation.name) "treeId"
                         , processExpression (N.value implementation.expression)
                         ]
 
