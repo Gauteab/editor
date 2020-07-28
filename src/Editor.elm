@@ -9,6 +9,7 @@ import Elm.Syntax.Declaration exposing (Declaration(..))
 import Elm.Syntax.Expression exposing (Expression(..))
 import Elm.Syntax.File exposing (File)
 import Elm.Syntax.Node as N exposing (Node(..))
+import State exposing (State)
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
 
@@ -30,6 +31,11 @@ type alias Node =
     }
 
 
+type alias Ast =
+    Tree Node
+
+
+example : String
 example =
     """
 module Test exposing (..)
@@ -38,10 +44,14 @@ food = if x then y else [z,2]
 
 
 init =
-    steps [] <|
-        Editor 0 <|
-            Zipper.fromTree <|
-                parse example
+    let
+        ( i, tree ) =
+            parse example
+                |> relabel 0
+                |> Debug.log "tree"
+    in
+    Editor i (Zipper.fromTree tree)
+        |> steps []
 
 
 
@@ -81,13 +91,18 @@ steps actions editor =
     List.foldl step editor actions
 
 
+relabel : Int -> Ast -> ( Int, Ast )
+relabel initial tree =
+    Tree.mapAccumulate (\a l -> ( a + 1, { l | id = a } )) initial tree
+
+
 
 -- VIEW
 
 
 view : Editor -> Element msg
-view { nextId, zipper } =
-    viewTree (Zipper.tree zipper)
+view editor =
+    viewTree (Zipper.tree editor.zipper)
 
 
 viewTree tree =
