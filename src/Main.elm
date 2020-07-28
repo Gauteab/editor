@@ -3,7 +3,8 @@ module Main exposing (main)
 import Action
 import Browser
 import Editor
-import Element
+import Element exposing (Element)
+import Element.Font as Font
 import Html exposing (Html)
 
 
@@ -30,7 +31,7 @@ type alias Model =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { editor = Editor.example }
+    ( { editor = Editor.init }
     , Cmd.none
     )
 
@@ -65,6 +66,11 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    Element.layout [] <|
+    Element.layout
+        [ Font.family [ Font.monospace ]
+        , Font.color (Element.rgb255 0 0 0)
+        , Element.paddingXY 5 5
+        ]
+    <|
         Editor.view
             model.editor
