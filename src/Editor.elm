@@ -52,7 +52,7 @@ init =
                 |> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
-        |> steps [ LastChild, FirstChild, NextSibling, LastChild ]
+        |> steps [ LastChild, FirstChild, NextSibling ]
 
 
 
@@ -84,7 +84,7 @@ step action { nextId, zipper } =
             Editor nextId zipper
 
         ReverseChildren ->
-            Editor nextId zipper
+            Editor nextId (Zipper.mapTree (Tree.mapChildren List.reverse) zipper)
 
 
 steps : List Action -> Editor -> Editor
