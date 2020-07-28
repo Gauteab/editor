@@ -1,7 +1,8 @@
 module Editor exposing (..)
 
 import Action exposing (Action(..))
-import Element exposing (Element, row, text)
+import Element exposing (Element, el, rgb, rgb255, row, text)
+import Element.Background as Background
 import Elm.Parser
 import Elm.Processing as Processing
 import Elm.RawFile exposing (RawFile)
@@ -51,7 +52,7 @@ init =
                 |> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
-        |> steps []
+        |> steps [ LastChild, FirstChild, NextSibling, LastChild ]
 
 
 
@@ -102,26 +103,39 @@ relabel initial tree =
 
 view : Editor -> Element msg
 view editor =
-    viewTree (Zipper.tree editor.zipper)
+    let
+        tree =
+            Zipper.tree editor.zipper
+    in
+    viewTree (Tree.label tree).id (Zipper.tree <| Zipper.root editor.zipper)
 
 
-viewTree tree =
+viewTree : Int -> Ast -> Element msg
+viewTree selected tree =
     let
         children =
             Tree.children tree
 
         label =
             Tree.label tree
-    in
-    if not <| List.isEmpty children then
-        row [] <|
-            (text <| "(" ++ label.tag ++ " ")
-                :: (List.map viewTree children
-                        ++ [ text ")" ]
-                   )
 
-    else
-        text (String.join "" [ "", label.text, " " ])
+        attributes =
+            if label.id == selected then
+                [ Background.color (rgb255 138 217 235) ]
+
+            else
+                []
+    in
+    el attributes <|
+        if not <| List.isEmpty children then
+            row [] <|
+                (text <| "(" ++ label.tag ++ " ")
+                    :: (List.map (viewTree selected) children
+                            ++ [ text ")" ]
+                       )
+
+        else
+            text (String.join "" [ "", label.text, " " ])
 
 
 
