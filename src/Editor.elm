@@ -52,11 +52,22 @@ init =
                 |> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
-        |> steps [ LastChild, FirstChild, NextSibling, InsertText "hello" ]
+        |> steps
+            [ LastChild
+            , FirstChild
+            , NextSibling
+            , LastChild
+            , AddNode "if"
+            ]
 
 
 
 -- UPDATE
+
+
+steps : List Action -> Editor -> Editor
+steps actions editor =
+    List.foldl step editor actions
 
 
 step : Action -> Editor -> Editor
@@ -78,7 +89,7 @@ step action { nextId, zipper } =
             Editor nextId (Zipper.lastChild zipper |> Maybe.withDefault zipper)
 
         Delete ->
-            Editor nextId zipper
+            Editor nextId <| Debug.todo ""
 
         InsertText s ->
             if List.isEmpty <| Zipper.children zipper then
@@ -89,14 +100,16 @@ step action { nextId, zipper } =
                 Debug.todo "Inserted text into non-leaf node"
 
         AddNode s ->
-            Debug.todo ""
+            zipper
+                -- bad
+                |> Zipper.append (Tree.tree (Node nextId "" s) [ Tree.singleton (Node (nextId + 1) "_" "hole") ])
+                |> Editor (nextId + 2)
 
         Lift ->
-            Editor nextId
-                (Zipper.parent zipper
-                    |> (Maybe.map << Zipper.mapTree << always << Zipper.tree) zipper
-                    |> Maybe.withDefault zipper
-                )
+            Zipper.parent zipper
+                |> (Maybe.map << Zipper.mapTree << always << Zipper.tree) zipper
+                |> Maybe.withDefault zipper
+                |> Editor nextId
 
         SwapRight ->
             swapWith Zipper.nextSibling zipper
@@ -109,7 +122,9 @@ step action { nextId, zipper } =
                 |> Editor nextId
 
         ReverseChildren ->
-            Editor nextId (Zipper.mapTree (Tree.mapChildren List.reverse) zipper)
+            zipper
+                |> (Zipper.mapTree << Tree.mapChildren) List.reverse
+                |> Editor nextId
 
 
 swapWith f zipper =
@@ -140,11 +155,6 @@ zipperId =
 
 treeId =
     Tree.label >> .id
-
-
-steps : List Action -> Editor -> Editor
-steps actions editor =
-    List.foldl step editor actions
 
 
 relabel : Int -> Ast -> ( Int, Ast )
