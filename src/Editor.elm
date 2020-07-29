@@ -52,7 +52,7 @@ init =
                 |> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
-        |> steps [ LastChild, FirstChild, NextSibling, FirstChild, SwapRight, SwapRight, SwapLeft ]
+        |> steps [ LastChild, FirstChild, NextSibling, InsertText "hello" ]
 
 
 
@@ -81,7 +81,12 @@ step action { nextId, zipper } =
             Editor nextId zipper
 
         InsertText s ->
-            Debug.todo ""
+            if List.isEmpty <| Zipper.children zipper then
+                Editor nextId <|
+                    Zipper.mapLabel (\l -> { l | text = s }) zipper
+
+            else
+                Debug.todo "Inserted text into non-leaf node"
 
         AddNode s ->
             Debug.todo ""
