@@ -1,7 +1,8 @@
 module Editor exposing (..)
 
 import Action exposing (Action(..))
-import Element exposing (Element, el, rgb, rgb255, row, text)
+import Dict
+import Element exposing (Element, alignBottom, column, el, rgb, rgb255, row, text)
 import Element.Background as Background
 import Elm.Parser
 import Elm.Processing as Processing
@@ -40,7 +41,7 @@ example : String
 example =
     """
 module Test exposing (..)
-food = if x then y else [z,2]
+food = if x then y else [2, z]
 """
 
 
@@ -57,7 +58,7 @@ init =
             , FirstChild
             , NextSibling
             , LastChild
-            , AddNode "if"
+            , AddNode "assignment"
             ]
 
 
@@ -100,10 +101,14 @@ step action { nextId, zipper } =
                 Debug.todo "Inserted text into non-leaf node"
 
         AddNode s ->
-            zipper
-                -- bad
-                |> Zipper.append (Tree.tree (Node nextId "" s) [ Tree.singleton (Node (nextId + 1) "_" "hole") ])
-                |> Editor (nextId + 2)
+            case newNode s of
+                Just ast ->
+                    zipper
+                        |> Zipper.append (Debug.log "ast" ast)
+                        |> Editor (nextId + 2)
+
+                Nothing ->
+                    Editor nextId zipper
 
         Lift ->
             Zipper.parent zipper
@@ -163,6 +168,75 @@ relabel initial tree =
 
 
 
+-- VALIDATION
+{- A data structure to be used for validating trees and generating a valid trees
+
+   list: many expression
+   case: some branch
+   if:   one expression followed by an even number (>= 2) of expressions... or should this also be divided into branches?
+   assignment: one identifier, one expression
+
+-}
+
+
+type alias Definition =
+    List Constraint
+
+
+type Constraint
+    = Exactly Int String
+    | AtLeast Int String
+
+
+definitions =
+    let
+        one =
+            Exactly 1
+
+        many =
+            AtLeast 0
+
+        some =
+            AtLeast 1
+    in
+    Dict.fromList <|
+        [ ( "list", [ many "expression" ] )
+        , ( "case", [ some "branch" ] )
+        , ( "branch", [ one "pattern", one "expression" ] )
+        , ( "assignment", [ one "name", one "expression" ] )
+        ]
+
+
+hole =
+    Node 0 "_" "hole"
+
+
+holeT =
+    Tree.singleton hole
+
+
+newNode : String -> Maybe Ast
+newNode name =
+    Dict.get name definitions
+        |> Maybe.map (generate name)
+
+
+generate : String -> Definition -> Ast
+generate name definition =
+    let
+        f constraint =
+            case constraint of
+                Exactly n _ ->
+                    List.repeat n holeT
+
+                AtLeast n _ ->
+                    List.repeat n holeT
+    in
+    Tree.tree (Node 0 "" name) <|
+        List.concatMap f definition
+
+
+
 -- VIEW
 
 
@@ -193,14 +267,19 @@ viewTree selected tree =
     in
     el attributes <|
         if not <| List.isEmpty children then
-            row [] <|
-                (text <| "(" ++ label.tag ++ " ")
-                    :: (List.map (viewTree selected) children
-                            ++ [ text ")" ]
-                       )
+            column []
+                [ text <| label.tag ++ ":"
+                , row []
+                    [ text "  "
+                    , column [] <| List.map (viewTree selected) children
+                    ]
+                ]
+
+        else if label.tag == "hole" then
+            text "hole"
 
         else
-            text (String.join "" [ "", label.text, " " ])
+            text (label.tag ++ ": " ++ label.text)
 
 
 
@@ -243,7 +322,7 @@ processRawFile rawFile =
                     leaf (String.fromInt i) "int"
 
                 FunctionOrValue _ s ->
-                    leaf s "treeId"
+                    leaf s "name"
 
                 _ ->
                     Debug.todo (Debug.toString e)
@@ -261,7 +340,7 @@ processRawFile rawFile =
                             N.value function.declaration
                     in
                     node "assignment"
-                        [ leaf (N.value implementation.name) "treeId"
+                        [ leaf (N.value implementation.name) "name"
                         , processExpression (N.value implementation.expression)
                         ]
 
