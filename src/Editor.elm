@@ -8,9 +8,12 @@ import Elm.Parser
 import Elm.Processing as Processing
 import Elm.RawFile exposing (RawFile)
 import Elm.Syntax.Declaration exposing (Declaration(..))
-import Elm.Syntax.Expression exposing (Expression(..))
+import Elm.Syntax.Expression exposing (Expression(..), LetDeclaration(..))
 import Elm.Syntax.File exposing (File)
+import Elm.Syntax.Infix exposing (InfixDirection(..))
+import Elm.Syntax.Module as Module
 import Elm.Syntax.Node as N exposing (Node(..))
+import Elm.Syntax.Pattern exposing (Pattern)
 import State exposing (State)
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
@@ -41,10 +44,15 @@ example : String
 example =
     """
 module Test exposing (..)
-food = if x then y else [2, z]
+main =
+  Browser.sandbox { init = init, update = update, view = view }
+init : Model
+init =
+    0
 """
 
 
+init : Editor
 init =
     let
         ( i, tree ) =
@@ -58,7 +66,6 @@ init =
             , FirstChild
             , NextSibling
             , LastChild
-            , AddNode "assignment"
             ]
 
 
@@ -208,7 +215,7 @@ definitions =
 
 
 hole =
-    Node 0 "_" "hole"
+    Node 0 "" "hole"
 
 
 holeT =
@@ -309,33 +316,139 @@ processRawFile rawFile =
         file =
             Processing.process Processing.init rawFile
 
+        processLetDeclaration : LetDeclaration -> Tree Node
+        processLetDeclaration letDeclaration =
+            case letDeclaration of
+                LetFunction { documentation, signature, declaration } ->
+                    Debug.todo ""
+
+                LetDestructuring mnode nnode ->
+                    Debug.todo ""
+
+        processRecordSetter ( name, expression ) =
+            node "assignment" [ leaf (N.value name) "name", processExpression (N.value expression) ]
+
+        processPattern : Pattern -> Tree Node
+        processPattern pattern =
+            case pattern of
+                Elm.Syntax.Pattern.VarPattern s ->
+                    leaf s "name"
+
+                _ ->
+                    Debug.todo "Unsupported pattern"
+
         processExpression : Expression -> Tree Node
         processExpression e =
             case e of
+                UnitExpr ->
+                    leaf "()" "unit"
+
+                PrefixOperator s ->
+                    leaf s "prefix-operator"
+
+                Operator s ->
+                    leaf s "operator"
+
+                Integer i ->
+                    leaf (String.fromInt i) "int"
+
                 ListExpr es ->
                     node "list" (List.map (processExpression << N.value) es)
 
                 IfBlock e1 e2 e3 ->
                     node "if" (List.map (processExpression << N.value) [ e1, e2, e3 ])
 
-                Integer i ->
-                    leaf (String.fromInt i) "int"
+                FunctionOrValue names s ->
+                    case names of
+                        [] ->
+                            leaf s "name"
 
-                FunctionOrValue _ s ->
-                    leaf s "name"
+                        _ ->
+                            -- TODO: This should be a qualified name of something
+                            leaf (String.join "." names ++ "." ++ s) "name"
 
-                _ ->
-                    Debug.todo (Debug.toString e)
+                Application nodes ->
+                    node "call" (List.map (processExpression << N.value) nodes)
 
-        processFile : File -> List (Tree Node)
-        processFile =
-            .declarations >> List.map (N.value >> processDecoration)
+                OperatorApplication string infixDirection e1 e2 ->
+                    case infixDirection of
+                        Left ->
+                            node string [ processExpression (N.value e1), processExpression (N.value e2) ]
+
+                        Right ->
+                            node string [ processExpression (N.value e2), processExpression (N.value e1) ]
+
+                        Non ->
+                            Debug.todo ""
+
+                Hex int ->
+                    Debug.todo ""
+
+                Floatable float ->
+                    leaf (String.fromFloat float) "float"
+
+                Negation exp ->
+                    node "negation" [ processExpression (N.value exp) ]
+
+                Literal string ->
+                    leaf "string" string
+
+                CharLiteral char ->
+                    leaf (String.fromChar char) "char"
+
+                TupledExpression nodes ->
+                    node "tuple" (List.map (processExpression << N.value) nodes)
+
+                ParenthesizedExpression n ->
+                    Debug.todo ""
+
+                LetExpression { declarations, expression } ->
+                    node "let" (List.map (N.value >> processLetDeclaration) declarations ++ [ (N.value >> processExpression) expression ])
+
+                CaseExpression { expression, cases } ->
+                    let
+                        f ( pattern, exp ) =
+                            node "branch" [ processPattern (N.value pattern), processExpression (N.value exp) ]
+                    in
+                    node "case-of" (processExpression (N.value expression) :: List.map f cases)
+
+                LambdaExpression { args, expression } ->
+                    node "lambda" (List.map (N.value >> processPattern) args ++ [ processExpression (N.value expression) ])
+
+                RecordExpr assignments ->
+                    node "record-expression" <| List.map (N.value >> processRecordSetter) assignments
+
+                RecordAccess exp name ->
+                    node "record-access" [ N.value exp |> processExpression, leaf (N.value name) "name" ]
+
+                RecordAccessFunction string ->
+                    leaf string "record-access-function"
+
+                RecordUpdateExpression name n2 ->
+                    node "record-update" ([ leaf (N.value name) "name" ] ++ List.map (processRecordSetter << N.value) n2)
+
+                GLSLExpression string ->
+                    Debug.todo "GLSL expressions are not supported in this version."
+
+        processFile : File -> Tree Node
+        processFile f =
+            let
+                name =
+                    (.moduleDefinition >> N.value >> Module.moduleName) f
+
+                declarations =
+                    file.declarations |> List.map (N.value >> processDecoration)
+            in
+            node "module" [ leaf (String.join "." name) "module-name", node "declarations" declarations ]
 
         processDecoration : Declaration -> Tree Node
         processDecoration declaration =
             case declaration of
                 FunctionDeclaration function ->
                     let
+                        signature =
+                            Maybe.map N.value function.signature
+
                         implementation =
                             N.value function.declaration
                     in
@@ -347,4 +460,4 @@ processRawFile rawFile =
                 _ ->
                     Debug.todo ""
     in
-    node "module" <| processFile file
+    processFile file
