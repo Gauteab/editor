@@ -2,7 +2,7 @@ module Editor exposing (..)
 
 import Action exposing (Action(..))
 import Dict
-import Element exposing (Element, alignBottom, column, el, rgb, rgb255, row, text)
+import Element exposing (Element, alignBottom, alignTop, column, el, explain, px, rgb, rgb255, row, spacing, text)
 import Element.Background as Background
 import Elm.Parser
 import Elm.Processing as Processing
@@ -60,7 +60,13 @@ update msg model =
 
     Decrement ->
       model - 1
-
+view : Model -> Html Msg
+view model =
+  div []
+    [ button [ onClick Decrement ] [ text "-" ]
+    , div [] [ text (String.fromInt model) ]
+    , button [ onClick Increment ] [ text "+" ]
+    ]
 
 """
 
@@ -272,6 +278,9 @@ view editor =
 viewTree : Int -> Ast -> Element msg
 viewTree selected tree =
     let
+        go =
+            viewTree selected
+
         children =
             Tree.children tree
 
@@ -286,20 +295,117 @@ viewTree selected tree =
                 []
     in
     el attributes <|
-        if not <| List.isEmpty children then
-            column []
-                [ text <| label.tag ++ ":"
-                , row []
-                    [ text "  "
-                    , column [] <| List.map (viewTree selected) children
+        case ( label.tag, children ) of
+            ( "parenthesized-expression", [ e ] ) ->
+                column [] <|
+                    [ row [] [ el [ alignTop ] <| text "( ", go e ]
+                    , text ")"
                     ]
-                ]
 
-        else if label.tag == "hole" then
-            text "hole"
+            ( "declarations", declarations ) ->
+                column [ spacing 40 ]
+                    (List.map
+                        go
+                        declarations
+                    )
 
-        else
-            text (label.tag ++ ": " ++ label.text)
+            ( "module-name", _ ) ->
+                text label.text
+
+            ( "module", [ moduleName, declarations ] ) ->
+                column [ spacing 40 ] <|
+                    [ row [] [ text "module ", go moduleName, text " exposing (..)" ]
+                    , go declarations
+                    ]
+
+            ( "operator", [ l, r ] ) ->
+                row [] [ go l, text (" " ++ label.text ++ " "), go r ]
+
+            ( "branch", [ l, r ] ) ->
+                row [] [ go l, text " -> ", go r ]
+
+            ( "case-of", name :: branches ) ->
+                column [] <|
+                    [ row [] [ text "case ", go name, text " of" ]
+                    , row [] [ text "  ", column [] <| List.map go branches ]
+                    ]
+
+            ( "function-type", [ l, r ] ) ->
+                row [] [ go l, text " -> ", go r ]
+
+            ( "typed", [ name ] ) ->
+                go name
+
+            ( "signature", [ name, annotation ] ) ->
+                row [] [ go name, text " : ", go annotation ]
+
+            ( "call", x :: xs ) ->
+                column [] <|
+                    [ go x
+                    , row [] [ text "  ", column [] <| List.map go xs ]
+                    ]
+
+            ( "function-declaration", _ ) ->
+                column [] (List.map go children)
+
+            ( "arguments", _ ) ->
+                row [ spacing 10 ] (List.map go children)
+
+            ( "function-definition", [ name, arguments, expression ] ) ->
+                column [] <|
+                    [ row [] [ go name, text " ", go arguments, text "=" ]
+                    , row [] [ text "  ", go expression ]
+                    ]
+
+            ( "list", x :: xs ) ->
+                column [] <|
+                    List.concat <|
+                        [ [ row [] [ el [ alignTop ] <| text "[ ", go x ] ]
+                        , List.map (\r -> row [] [ text ", ", go r ]) xs
+                        , [ text "]" ]
+                        ]
+
+            ( "list", _ ) ->
+                text "[]"
+
+            ( "record-expression", x :: xs ) ->
+                column [] <|
+                    List.concat <|
+                        [ [ row [] [ text "{ ", go x ] ]
+                        , List.map (\r -> row [] [ text ", ", go r ]) xs
+                        , [ text "}" ]
+                        ]
+
+            ( "float", _ ) ->
+                text label.text
+
+            ( "int", _ ) ->
+                text label.text
+
+            ( "name", _ ) ->
+                text label.text
+
+            ( "assignment", [ l, r ] ) ->
+                row [] [ row [ alignTop ] [ go l, text " = " ], go r ]
+
+            ( "string", _ ) ->
+                row [] [ text <| "\"" ++ label.text ++ "\"" ]
+
+            _ ->
+                if not <| List.isEmpty children then
+                    column []
+                        [ text <| label.tag ++ ":"
+                        , row []
+                            [ text "  "
+                            , column [] <| List.map (viewTree selected) children
+                            ]
+                        ]
+
+                else if label.tag == "hole" then
+                    text "hole"
+
+                else
+                    text (label.tag ++ ": " ++ label.text)
 
 
 
@@ -393,7 +499,7 @@ processRawFile rawFile =
                 OperatorApplication string infixDirection e1 e2 ->
                     case infixDirection of
                         Left ->
-                            node string [ processExpression (N.value e1), processExpression (N.value e2) ]
+                            Tree.tree (Node 0 string "operator") [ processExpression (N.value e1), processExpression (N.value e2) ]
 
                         Right ->
                             node string [ processExpression (N.value e2), processExpression (N.value e1) ]
@@ -411,7 +517,7 @@ processRawFile rawFile =
                     node "negation" [ processExpression (N.value exp) ]
 
                 Literal string ->
-                    leaf "string" string
+                    leaf string "string"
 
                 CharLiteral char ->
                     leaf (String.fromChar char) "char"
@@ -420,7 +526,7 @@ processRawFile rawFile =
                     node "tuple" (List.map (processExpression << N.value) nodes)
 
                 ParenthesizedExpression n ->
-                    Debug.todo ""
+                    node "parenthesized-expression" [ processExpression (N.value n) ]
 
                 LetExpression { declarations, expression } ->
                     node "let" (List.map (N.value >> processLetDeclaration) declarations ++ [ (N.value >> processExpression) expression ])
@@ -501,6 +607,9 @@ processRawFile rawFile =
                         signature =
                             Maybe.map N.value function.signature
 
+                        arguments =
+                            List.map N.value <| .arguments <| N.value function.declaration
+
                         expression =
                             N.value <| .expression <| N.value function.declaration
 
@@ -510,11 +619,11 @@ processRawFile rawFile =
                     node "function-declaration" <|
                         case signature of
                             Nothing ->
-                                [ node "assignment" [ leaf name "name", processExpression expression ] ]
+                                [ node "function-definition" [ leaf name "name", node "arguments" <| List.map processPattern arguments, processExpression expression ] ]
 
                             Just s ->
-                                [ node "signature" [ processSignature s ]
-                                , node "assignment" [ leaf name "name", processExpression expression ]
+                                [ processSignature s
+                                , node "function-definition" [ leaf name "name", node "arguments" <| List.map processPattern arguments, processExpression expression ]
                                 ]
 
                 _ ->

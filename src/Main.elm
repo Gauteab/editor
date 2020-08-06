@@ -69,7 +69,7 @@ view model =
     Element.layout
         [ Font.family [ Font.monospace ]
         , Font.color (Element.rgb255 0 0 0)
-        , Element.paddingXY 5 5
+        , Element.paddingXY 15 15
         ]
     <|
         Editor.view
