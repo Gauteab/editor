@@ -13,7 +13,10 @@ import Elm.Syntax.File exposing (File)
 import Elm.Syntax.Infix exposing (InfixDirection(..))
 import Elm.Syntax.Module as Module
 import Elm.Syntax.Node as N exposing (Node(..))
-import Elm.Syntax.Pattern exposing (Pattern)
+import Elm.Syntax.Pattern exposing (Pattern(..))
+import Elm.Syntax.Signature exposing (Signature)
+import Elm.Syntax.TypeAnnotation exposing (TypeAnnotation(..))
+import Maybe exposing (Maybe)
 import State exposing (State)
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
@@ -49,6 +52,16 @@ main =
 init : Model
 init =
     0
+update : Msg -> Model -> Model
+update msg model =
+  case msg of
+    Increment ->
+      model + 1
+
+    Decrement ->
+      model - 1
+
+
 """
 
 
@@ -331,11 +344,18 @@ processRawFile rawFile =
         processPattern : Pattern -> Tree Node
         processPattern pattern =
             case pattern of
-                Elm.Syntax.Pattern.VarPattern s ->
+                VarPattern s ->
                     leaf s "name"
 
+                NamedPattern { moduleName, name } patterns ->
+                    if not <| List.isEmpty moduleName && List.isEmpty patterns then
+                        Debug.todo ""
+
+                    else
+                        leaf name "name"
+
                 _ ->
-                    Debug.todo "Unsupported pattern"
+                    Debug.todo ("Unsupported pattern: " ++ Debug.toString pattern)
 
         processExpression : Expression -> Tree Node
         processExpression e =
@@ -441,6 +461,38 @@ processRawFile rawFile =
             in
             node "module" [ leaf (String.join "." name) "module-name", node "declarations" declarations ]
 
+        processSignature : Signature -> Tree Node
+        processSignature { name, typeAnnotation } =
+            node "signature" [ leaf (N.value name) "name", processTypeAnnotation (N.value typeAnnotation) ]
+
+        processTypeAnnotation : TypeAnnotation -> Tree Node
+        processTypeAnnotation typeAnnotation =
+            case typeAnnotation of
+                GenericType name ->
+                    Debug.todo ""
+
+                Typed (N.Node _ ( moduleName, name )) annotations ->
+                    let
+                        x =
+                            Debug.log "" annotations
+                    in
+                    node "typed" [ leaf name "name" ]
+
+                Unit ->
+                    leaf "()" "unit"
+
+                Tupled annotations ->
+                    Debug.todo ""
+
+                Record recordDefinition ->
+                    Debug.todo ""
+
+                GenericRecord name recordDefinition ->
+                    Debug.todo ""
+
+                FunctionTypeAnnotation (N.Node _ annotationFrom) (N.Node _ annotationTo) ->
+                    node "function-type" [ processTypeAnnotation annotationFrom, processTypeAnnotation annotationTo ]
+
         processDecoration : Declaration -> Tree Node
         processDecoration declaration =
             case declaration of
@@ -449,13 +501,21 @@ processRawFile rawFile =
                         signature =
                             Maybe.map N.value function.signature
 
-                        implementation =
-                            N.value function.declaration
+                        expression =
+                            N.value <| .expression <| N.value function.declaration
+
+                        name =
+                            N.value <| .name <| N.value function.declaration
                     in
-                    node "assignment"
-                        [ leaf (N.value implementation.name) "name"
-                        , processExpression (N.value implementation.expression)
-                        ]
+                    node "function-declaration" <|
+                        case signature of
+                            Nothing ->
+                                [ node "assignment" [ leaf name "name", processExpression expression ] ]
+
+                            Just s ->
+                                [ node "signature" [ processSignature s ]
+                                , node "assignment" [ leaf name "name", processExpression expression ]
+                                ]
 
                 _ ->
                     Debug.todo ""
