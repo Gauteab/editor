@@ -230,6 +230,7 @@ definitions =
         , ( "case", [ some "branch" ] )
         , ( "branch", [ one "pattern", one "expression" ] )
         , ( "assignment", [ one "name", one "expression" ] )
+        , ( "hole", [] )
         ]
 
 

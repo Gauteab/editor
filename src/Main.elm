@@ -1,11 +1,15 @@
 module Main exposing (main)
 
-import Action
+import Action exposing (Action(..))
 import Browser
+import Browser.Events
+import Dict
 import Editor
 import Element exposing (Element)
 import Element.Font as Font
 import Html exposing (Html)
+import Json.Decode
+import Keyboard.Event exposing (KeyboardEvent, decodeKeyboardEvent)
 
 
 
@@ -42,6 +46,23 @@ init _ =
 
 type Msg
     = NoOp
+    | HandleKeyboardEvent KeyboardEvent
+
+
+keyActionMap =
+    Dict.fromList <|
+        [ ( "j", FirstChild )
+        , ( "k", SelectParent )
+        , ( "h", PreviousSibling )
+        , ( "l", NextSibling )
+        , ( "w", LastChild )
+        , ( "d", Delete )
+        , ( "K", Lift )
+        , ( "L", SwapRight )
+        , ( "H", SwapLeft )
+        , ( "r", ReverseChildren )
+        , ( "a", AddNode "hole" )
+        ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -50,6 +71,22 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        HandleKeyboardEvent keyboardEvent ->
+            let
+                newEditor =
+                    case Dict.get (Maybe.withDefault "" keyboardEvent.key) keyActionMap of
+                        Just action ->
+                            Editor.step action model.editor
+
+                        _ ->
+                            model.editor
+            in
+            ( { model
+                | editor = newEditor
+              }
+            , Cmd.none
+            )
+
 
 
 -- SUBSCRIPTIONS
@@ -57,7 +94,7 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Browser.Events.onKeyDown <| Json.Decode.map HandleKeyboardEvent decodeKeyboardEvent
 
 
 
