@@ -6,6 +6,7 @@ import Browser.Events
 import Dict
 import Editor exposing (Editor)
 import Element exposing (Element, alignRight, column, el, explain, fill, fillPortion, height, row, text, width)
+import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
@@ -106,7 +107,8 @@ view : Model -> Html Msg
 view model =
     Element.layout
         [ Font.family [ Font.monospace ]
-        , Font.color (Element.rgb255 0 0 0)
+        , Font.color (Element.rgb255 50 50 50)
+        , Background.color (Element.rgb255 247 247 247)
         , Element.paddingXY 15 15
         , width fill
         , height fill

@@ -4,6 +4,7 @@ import Action exposing (Action(..))
 import Dict
 import Element exposing (Element, alignBottom, alignTop, column, el, explain, px, rgb, rgb255, row, spacing, text)
 import Element.Background as Background
+import Element.Font as Font
 import Elm.Parser
 import Elm.Processing as Processing
 import Elm.RawFile exposing (RawFile)
@@ -293,6 +294,12 @@ viewTree selected tree =
         label =
             Tree.label tree
 
+        token =
+            el [ alignTop ] << text
+
+        keyword =
+            el [ alignTop, Font.color (rgb255 136 89 168) ] << text
+
         attributes =
             if label.id == selected then
                 [ Background.color (rgb255 138 217 235) ]
@@ -304,8 +311,8 @@ viewTree selected tree =
         case ( label.tag, children ) of
             ( "parenthesized-expression", [ e ] ) ->
                 column [] <|
-                    [ row [] [ el [ alignTop ] <| text "( ", go e ]
-                    , text ")"
+                    [ row [] [ el [ alignTop ] <| token "( ", go e ]
+                    , token ")"
                     ]
 
             ( "declarations", declarations ) ->
@@ -320,7 +327,7 @@ viewTree selected tree =
 
             ( "module", [ moduleName, declarations ] ) ->
                 column [ spacing 40 ] <|
-                    [ row [] [ text "module ", go moduleName, text " exposing (..)" ]
+                    [ row [] [ keyword "module ", go moduleName, keyword " exposing ", text "(..)" ]
                     , go declarations
                     ]
 
@@ -328,22 +335,22 @@ viewTree selected tree =
                 row [] [ go l, text (" " ++ label.text ++ " "), go r ]
 
             ( "branch", [ l, r ] ) ->
-                row [] [ go l, text " -> ", go r ]
+                row [] [ go l, token " -> ", go r ]
 
             ( "case-of", name :: branches ) ->
                 column [] <|
-                    [ row [] [ text "case ", go name, text " of" ]
+                    [ row [] [ keyword "case ", go name, keyword " of" ]
                     , row [] [ text "  ", column [] <| List.map go branches ]
                     ]
 
             ( "function-type", [ l, r ] ) ->
-                row [] [ go l, text " -> ", go r ]
+                row [] [ go l, token " -> ", go r ]
 
             ( "typed", [ name ] ) ->
                 go name
 
             ( "signature", [ name, annotation ] ) ->
-                row [] [ go name, text " : ", go annotation ]
+                row [] [ el [ Font.color (rgb255 142 144 140) ] <| go name, token " : ", go annotation ]
 
             ( "call", x :: xs ) ->
                 column [] <|
@@ -359,43 +366,43 @@ viewTree selected tree =
 
             ( "function-definition", [ name, arguments, expression ] ) ->
                 column [] <|
-                    [ row [] [ go name, text " ", go arguments, text "=" ]
+                    [ row [] [ el [ Font.color (rgb255 142 144 140) ] <| go name, text " ", go arguments, token "=" ]
                     , row [] [ text "  ", go expression ]
                     ]
 
             ( "list", x :: xs ) ->
                 column [] <|
                     List.concat <|
-                        [ [ row [] [ el [ alignTop ] <| text "[ ", go x ] ]
-                        , List.map (\r -> row [] [ text ", ", go r ]) xs
-                        , [ text "]" ]
+                        [ [ row [] [ token "[ ", go x ] ]
+                        , List.map (\r -> row [] [ token ", ", go r ]) xs
+                        , [ token "]" ]
                         ]
 
             ( "list", _ ) ->
-                text "[]"
+                token "[]"
 
             ( "record-expression", x :: xs ) ->
                 column [] <|
                     List.concat <|
-                        [ [ row [] [ text "{ ", go x ] ]
-                        , List.map (\r -> row [] [ text ", ", go r ]) xs
-                        , [ text "}" ]
+                        [ [ row [] [ token "{ ", go x ] ]
+                        , List.map (\r -> row [] [ token ", ", go r ]) xs
+                        , [ token "}" ]
                         ]
 
             ( "float", _ ) ->
                 text label.text
 
             ( "int", _ ) ->
-                text label.text
+                el [ Font.color (rgb255 244 135 30) ] <| text label.text
 
             ( "name", _ ) ->
                 text label.text
 
             ( "assignment", [ l, r ] ) ->
-                row [] [ row [ alignTop ] [ go l, text " = " ], go r ]
+                row [] [ row [ alignTop ] [ go l, token " = " ], go r ]
 
             ( "string", _ ) ->
-                row [] [ text <| "\"" ++ label.text ++ "\"" ]
+                row [] [ el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\"" ]
 
             _ ->
                 if not <| List.isEmpty children then
