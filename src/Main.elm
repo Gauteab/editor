@@ -4,8 +4,9 @@ import Action exposing (Action(..))
 import Browser
 import Browser.Events
 import Dict
-import Editor
-import Element exposing (Element)
+import Editor exposing (Editor)
+import Element exposing (Element, alignRight, column, el, explain, fill, fillPortion, height, row, text, width)
+import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
 import Json.Decode
@@ -107,7 +108,41 @@ view model =
         [ Font.family [ Font.monospace ]
         , Font.color (Element.rgb255 0 0 0)
         , Element.paddingXY 15 15
+        , width fill
+        , height fill
         ]
     <|
-        Editor.view
-            model.editor
+        row [ width fill, height fill ]
+            [ editorPanel model.editor
+            , sidePanel (Editor.getFocusedTag model.editor)
+            ]
+
+
+editorPanel : Editor -> Element msg
+editorPanel editor =
+    el
+        [ width (fillPortion 4)
+        , height fill
+        , Element.scrollbarY
+        ]
+    <|
+        Editor.view editor
+
+
+sidePanel : String -> Element msg
+sidePanel tag =
+    column
+        [ Border.solid
+        , Border.width 1
+        , Border.widthEach
+            { bottom = 0
+            , left = 1
+            , right = 0
+            , top = 0
+            }
+        , height fill
+        , width (fillPortion 1)
+        , alignRight
+        , Element.padding 5
+        ]
+        [ text "focus:", text tag ]

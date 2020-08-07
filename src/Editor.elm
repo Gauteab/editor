@@ -88,6 +88,11 @@ init =
             ]
 
 
+getFocusedTag : Editor -> String
+getFocusedTag =
+    .zipper >> Zipper.label >> .tag
+
+
 
 -- UPDATE
 
