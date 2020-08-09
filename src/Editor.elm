@@ -2,7 +2,7 @@ module Editor exposing (..)
 
 import Action exposing (Action(..))
 import Dict
-import Element exposing (Element, alignBottom, alignTop, column, el, explain, px, rgb, rgb255, row, spacing, text)
+import Element exposing (Element, alignTop, column, el, explain, paddingEach, rgb255, row, spacing, text)
 import Element.Background as Background
 import Element.Font as Font
 import Elm.Parser
@@ -16,9 +16,9 @@ import Elm.Syntax.Module as Module
 import Elm.Syntax.Node as N exposing (Node(..))
 import Elm.Syntax.Pattern exposing (Pattern(..))
 import Elm.Syntax.Signature exposing (Signature)
+import Elm.Syntax.Type exposing (ValueConstructor)
 import Elm.Syntax.TypeAnnotation exposing (TypeAnnotation(..))
 import Maybe exposing (Maybe)
-import State exposing (State)
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
 
@@ -47,12 +47,49 @@ type alias Ast =
 example : String
 example =
     """
-module Test exposing (..)
+module Main exposing (..)
+
+-- Press buttons to increment and decrement a counter.
+--
+-- Read how it works:
+--   https://guide.elm-lang.org/architecture/buttons.html
+--
+
+
+import Browser
+import Html exposing (Html, button, div, text)
+import Html.Events exposing (onClick)
+
+
+
+-- MAIN
+
+
 main =
   Browser.sandbox { init = init, update = update, view = view }
+
+
+
+-- MODEL
+
+
+type alias Model = Int
+
+
 init : Model
 init =
-    0
+  0
+
+
+
+-- UPDATE
+
+
+type Msg
+  = Increment
+  | Decrement
+
+
 update : Msg -> Model -> Model
 update msg model =
   case msg of
@@ -61,6 +98,12 @@ update msg model =
 
     Decrement ->
       model - 1
+
+
+
+-- VIEW
+
+
 view : Model -> Html Msg
 view model =
   div []
@@ -68,7 +111,6 @@ view model =
     , div [] [ text (String.fromInt model) ]
     , button [ onClick Increment ] [ text "+" ]
     ]
-
 """
 
 
@@ -300,81 +342,136 @@ viewTree selected tree =
         keyword =
             el [ alignTop, Font.color (rgb255 136 89 168) ] << text
 
+        line =
+            row [ spacing 10 ]
+
+        lines =
+            column []
+
+        indented =
+            el [ paddingEach { left = 20, right = 0, top = 0, bottom = 0 } ]
+
+        block =
+            indented << lines
+
         attributes =
             if label.id == selected then
-                [ Background.color (rgb255 138 217 235) ]
+                [ Background.color (rgb255 138 217 235)
+
+                --, explain Debug.todo
+                ]
 
             else
                 []
     in
     el attributes <|
         case ( label.tag, children ) of
+            ( "type-arguments", _ ) ->
+                line (List.map go children)
+
+            ( "constructor", _ ) ->
+                line (List.map go children)
+
+            ( "constructors", _ ) ->
+                column [] (List.map go children)
+
+            ( "generics", _ ) ->
+                line (List.map go children)
+
+            ( "type", name :: generics :: [ constructors ] ) ->
+                let
+                    ( c, cs ) =
+                        case Tree.children constructors of
+                            x :: xs ->
+                                ( x, xs )
+
+                            _ ->
+                                Debug.todo ""
+                in
+                column []
+                    [ line [ keyword "type", go name, go generics ]
+                    , block <|
+                        line [ token "=", go c ]
+                            :: List.map (\e -> line [ token "|", go e ]) cs
+                    ]
+
+            ( "type-alias", [ name, generics, type_ ] ) ->
+                column []
+                    [ line [ keyword "type alias", go name, go generics, token "=" ]
+                    , indented <| go type_
+                    ]
+
             ( "parenthesized-expression", [ e ] ) ->
                 column [] <|
-                    [ row [] [ el [ alignTop ] <| token "( ", go e ]
+                    [ line [ token "(", go e ]
                     , token ")"
                     ]
 
             ( "declarations", declarations ) ->
                 column [ spacing 40 ]
-                    (List.map
-                        go
-                        declarations
-                    )
+                    (List.map go declarations)
 
             ( "module-name", _ ) ->
                 text label.text
 
             ( "module", [ moduleName, declarations ] ) ->
                 column [ spacing 40 ] <|
-                    [ row [] [ keyword "module ", go moduleName, keyword " exposing ", text "(..)" ]
+                    [ line [ keyword "module", go moduleName, keyword "exposing", text "(..)" ]
                     , go declarations
                     ]
 
             ( "operator", [ l, r ] ) ->
-                row [] [ go l, text (" " ++ label.text ++ " "), go r ]
+                line [ go l, text label.text, go r ]
 
             ( "branch", [ l, r ] ) ->
-                row [] [ go l, token " -> ", go r ]
+                line [ go l, token "->", go r ]
 
             ( "case-of", name :: branches ) ->
                 column [] <|
-                    [ row [] [ keyword "case ", go name, keyword " of" ]
-                    , row [] [ text "  ", column [] <| List.map go branches ]
+                    [ line [ keyword "case", go name, keyword "of" ]
+                    , block <| List.map go branches
                     ]
 
             ( "function-type", [ l, r ] ) ->
-                row [] [ go l, token " -> ", go r ]
+                line [ go l, token "->", go r ]
 
             ( "typed", [ name ] ) ->
                 go name
 
             ( "signature", [ name, annotation ] ) ->
-                row [] [ el [ Font.color (rgb255 142 144 140) ] <| go name, token " : ", go annotation ]
+                line
+                    [ el [ Font.color (rgb255 142 144 140) ] <| go name
+                    , token ":"
+                    , go annotation
+                    ]
 
             ( "call", x :: xs ) ->
                 column [] <|
                     [ go x
-                    , row [] [ text "  ", column [] <| List.map go xs ]
+                    , block <| List.map go xs
                     ]
 
             ( "function-declaration", _ ) ->
                 column [] (List.map go children)
 
             ( "arguments", _ ) ->
-                row [ spacing 10 ] (List.map go children)
+                line (List.map go children)
 
             ( "function-definition", [ name, arguments, expression ] ) ->
                 column [] <|
-                    [ row [] [ el [ Font.color (rgb255 142 144 140) ] <| go name, text " ", go arguments, token "=" ]
-                    , row [] [ text "  ", go expression ]
+                    [ line
+                        [ el [ Font.color (rgb255 142 144 140) ] (go name)
+                        , go arguments
+                        , token "="
+                        ]
+                    , indented <| go expression
                     ]
 
             ( "list", x :: xs ) ->
                 column [] <|
                     List.concat <|
-                        [ [ row [] [ token "[ ", go x ] ]
-                        , List.map (\r -> row [] [ token ", ", go r ]) xs
+                        [ [ line [ token "[", go x ] ]
+                        , List.map (\e -> line [ token ",", go e ]) xs
                         , [ token "]" ]
                         ]
 
@@ -384,8 +481,8 @@ viewTree selected tree =
             ( "record-expression", x :: xs ) ->
                 column [] <|
                     List.concat <|
-                        [ [ row [] [ token "{ ", go x ] ]
-                        , List.map (\r -> row [] [ token ", ", go r ]) xs
+                        [ [ line [ token "{", go x ] ]
+                        , List.map (\e -> line [ token ",", go e ]) xs
                         , [ token "}" ]
                         ]
 
@@ -399,26 +496,27 @@ viewTree selected tree =
                 text label.text
 
             ( "assignment", [ l, r ] ) ->
-                row [] [ row [ alignTop ] [ go l, token " = " ], go r ]
+                line [ go l, token "=", go r ]
 
             ( "string", _ ) ->
-                row [] [ el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\"" ]
+                el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\""
 
             _ ->
-                if not <| List.isEmpty children then
-                    column []
-                        [ text <| label.tag ++ ":"
-                        , row []
-                            [ text "  "
-                            , column [] <| List.map (viewTree selected) children
+                el [ explain Debug.todo ] <|
+                    if not <| List.isEmpty children then
+                        column []
+                            [ text <| label.tag ++ ":"
+                            , row []
+                                [ text "  "
+                                , column [] <| List.map (viewTree selected) children
+                                ]
                             ]
-                        ]
 
-                else if label.tag == "hole" then
-                    text "hole"
+                    else if label.tag == "hole" then
+                        text "hole"
 
-                else
-                    text (label.tag ++ ": " ++ label.text)
+                    else
+                        text (label.tag ++ ": " ++ label.text)
 
 
 
@@ -441,7 +539,7 @@ processRawFile rawFile =
         node v =
             Tree.tree (Node 0 "" v)
 
-        leaf v t =
+        leaf t v =
             Tree.singleton (Node 0 v t)
 
         file : File
@@ -458,20 +556,20 @@ processRawFile rawFile =
                     Debug.todo ""
 
         processRecordSetter ( name, expression ) =
-            node "assignment" [ leaf (N.value name) "name", processExpression (N.value expression) ]
+            node "assignment" [ leaf "name" (N.value name), processExpression (N.value expression) ]
 
         processPattern : Pattern -> Tree Node
         processPattern pattern =
             case pattern of
                 VarPattern s ->
-                    leaf s "name"
+                    leaf "name" s
 
                 NamedPattern { moduleName, name } patterns ->
                     if not <| List.isEmpty moduleName && List.isEmpty patterns then
                         Debug.todo ""
 
                     else
-                        leaf name "name"
+                        leaf "name" name
 
                 _ ->
                     Debug.todo ("Unsupported pattern: " ++ Debug.toString pattern)
@@ -480,16 +578,16 @@ processRawFile rawFile =
         processExpression e =
             case e of
                 UnitExpr ->
-                    leaf "()" "unit"
+                    leaf "unit" "()"
 
                 PrefixOperator s ->
-                    leaf s "prefix-operator"
+                    leaf "prefix-operator" s
 
                 Operator s ->
-                    leaf s "operator"
+                    leaf "operator" s
 
                 Integer i ->
-                    leaf (String.fromInt i) "int"
+                    leaf "int" (String.fromInt i)
 
                 ListExpr es ->
                     node "list" (List.map (processExpression << N.value) es)
@@ -500,11 +598,11 @@ processRawFile rawFile =
                 FunctionOrValue names s ->
                     case names of
                         [] ->
-                            leaf s "name"
+                            leaf "name" s
 
                         _ ->
                             -- TODO: This should be a qualified name of something
-                            leaf (String.join "." names ++ "." ++ s) "name"
+                            leaf "name" (String.join "." names ++ "." ++ s)
 
                 Application nodes ->
                     node "call" (List.map (processExpression << N.value) nodes)
@@ -524,16 +622,16 @@ processRawFile rawFile =
                     Debug.todo ""
 
                 Floatable float ->
-                    leaf (String.fromFloat float) "float"
+                    leaf "float" (String.fromFloat float)
 
                 Negation exp ->
                     node "negation" [ processExpression (N.value exp) ]
 
                 Literal string ->
-                    leaf string "string"
+                    leaf "string" string
 
                 CharLiteral char ->
-                    leaf (String.fromChar char) "char"
+                    leaf "char" (String.fromChar char)
 
                 TupledExpression nodes ->
                     node "tuple" (List.map (processExpression << N.value) nodes)
@@ -558,13 +656,13 @@ processRawFile rawFile =
                     node "record-expression" <| List.map (N.value >> processRecordSetter) assignments
 
                 RecordAccess exp name ->
-                    node "record-access" [ N.value exp |> processExpression, leaf (N.value name) "name" ]
+                    node "record-access" [ N.value exp |> processExpression, leaf "name" (N.value name) ]
 
                 RecordAccessFunction string ->
-                    leaf string "record-access-function"
+                    leaf "record-access-function" string
 
                 RecordUpdateExpression name n2 ->
-                    node "record-update" ([ leaf (N.value name) "name" ] ++ List.map (processRecordSetter << N.value) n2)
+                    node "record-update" ([ leaf "name" (N.value name) ] ++ List.map (processRecordSetter << N.value) n2)
 
                 GLSLExpression string ->
                     Debug.todo "GLSL expressions are not supported in this version."
@@ -578,11 +676,11 @@ processRawFile rawFile =
                 declarations =
                     file.declarations |> List.map (N.value >> processDecoration)
             in
-            node "module" [ leaf (String.join "." name) "module-name", node "declarations" declarations ]
+            node "module" [ leaf "module-name" (String.join "." name), node "declarations" declarations ]
 
         processSignature : Signature -> Tree Node
         processSignature { name, typeAnnotation } =
-            node "signature" [ leaf (N.value name) "name", processTypeAnnotation (N.value typeAnnotation) ]
+            node "signature" [ leaf "name" (N.value name), processTypeAnnotation (N.value typeAnnotation) ]
 
         processTypeAnnotation : TypeAnnotation -> Tree Node
         processTypeAnnotation typeAnnotation =
@@ -595,10 +693,10 @@ processRawFile rawFile =
                         x =
                             Debug.log "" annotations
                     in
-                    node "typed" [ leaf name "name" ]
+                    node "typed" [ leaf "name" name ]
 
                 Unit ->
-                    leaf "()" "unit"
+                    leaf "unit" "()"
 
                 Tupled annotations ->
                     Debug.todo ""
@@ -612,9 +710,27 @@ processRawFile rawFile =
                 FunctionTypeAnnotation (N.Node _ annotationFrom) (N.Node _ annotationTo) ->
                     node "function-type" [ processTypeAnnotation annotationFrom, processTypeAnnotation annotationTo ]
 
+        processConstructor : ValueConstructor -> Ast
+        processConstructor { name, arguments } =
+            node "constructor" [ leaf "name" (N.value name), node "type-arguments" <| List.map (processTypeAnnotation << N.value) arguments ]
+
         processDecoration : Declaration -> Tree Node
         processDecoration declaration =
             case declaration of
+                AliasDeclaration { documentation, name, generics, typeAnnotation } ->
+                    node "type-alias"
+                        [ leaf "name" (N.value name)
+                        , node "generics" (List.map (leaf "name" << N.value) generics)
+                        , processTypeAnnotation (N.value typeAnnotation)
+                        ]
+
+                CustomTypeDeclaration { documentation, name, generics, constructors } ->
+                    node "type"
+                        [ leaf "name" (N.value name)
+                        , node "generics" (List.map (leaf "name" << N.value) generics)
+                        , node "constructors" (List.map (processConstructor << N.value) constructors)
+                        ]
+
                 FunctionDeclaration function ->
                     let
                         signature =
@@ -632,11 +748,11 @@ processRawFile rawFile =
                     node "function-declaration" <|
                         case signature of
                             Nothing ->
-                                [ node "function-definition" [ leaf name "name", node "arguments" <| List.map processPattern arguments, processExpression expression ] ]
+                                [ node "function-definition" [ leaf "name" name, node "arguments" <| List.map processPattern arguments, processExpression expression ] ]
 
                             Just s ->
                                 [ processSignature s
-                                , node "function-definition" [ leaf name "name", node "arguments" <| List.map processPattern arguments, processExpression expression ]
+                                , node "function-definition" [ leaf "name" name, node "arguments" <| List.map processPattern arguments, processExpression expression ]
                                 ]
 
                 _ ->
