@@ -12,6 +12,7 @@ import Element.Font as Font
 import Html exposing (Html)
 import Json.Decode
 import Keyboard.Event exposing (KeyboardEvent, decodeKeyboardEvent)
+import Keyboard.Key as Key
 
 
 
@@ -32,12 +33,19 @@ main =
 
 
 type alias Model =
-    { editor : Editor.Editor }
+    { editor : Editor
+    , mode : Mode
+    }
+
+
+type Mode
+    = Normal
+    | Insert String
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { editor = Editor.init }
+    ( Model Editor.init Normal
     , Cmd.none
     )
 
@@ -48,7 +56,7 @@ init _ =
 
 type Msg
     = NoOp
-    | HandleKeyboardEvent KeyboardEvent
+    | KeyboardEvent KeyboardEvent
 
 
 keyActionMap =
@@ -73,21 +81,66 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
-        HandleKeyboardEvent keyboardEvent ->
+        KeyboardEvent keyboardEvent ->
             let
-                newEditor =
-                    case Dict.get (Maybe.withDefault "" keyboardEvent.key) keyActionMap of
-                        Just action ->
-                            Editor.step action model.editor
+                key =
+                    Maybe.withDefault "" keyboardEvent.key
+            in
+            case model.mode of
+                Normal ->
+                    let
+                        newEditor =
+                            case Dict.get key keyActionMap of
+                                Just action ->
+                                    Editor.step action model.editor
+
+                                _ ->
+                                    model.editor
+                    in
+                    case key of
+                        "i" ->
+                            ( { model
+                                | mode = Insert ""
+                              }
+                            , Cmd.none
+                            )
 
                         _ ->
-                            model.editor
-            in
-            ( { model
-                | editor = newEditor
-              }
-            , Cmd.none
-            )
+                            ( { model
+                                | editor = newEditor
+                              }
+                            , Cmd.none
+                            )
+
+                Insert string ->
+                    case keyboardEvent.keyCode of
+                        Key.Escape ->
+                            ( { model | mode = Normal }, Cmd.none )
+
+                        Key.Backspace ->
+                            ( { model
+                                | mode = Insert <| String.slice 0 -1 string
+                                , editor = Editor.step (InsertText <| String.slice 0 -1 string) model.editor
+                              }
+                            , Cmd.none
+                            )
+
+                        _ ->
+                            case String.uncons key of
+                                Just ( c, "" ) ->
+                                    let
+                                        s =
+                                            string ++ String.fromChar c
+                                    in
+                                    ( { model
+                                        | editor = Editor.step (InsertText s) model.editor
+                                        , mode = Insert s
+                                      }
+                                    , Cmd.none
+                                    )
+
+                                _ ->
+                                    ( model, Cmd.none )
 
 
 
@@ -96,7 +149,7 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Browser.Events.onKeyDown <| Json.Decode.map HandleKeyboardEvent decodeKeyboardEvent
+    Browser.Events.onKeyDown <| Json.Decode.map KeyboardEvent decodeKeyboardEvent
 
 
 
@@ -116,7 +169,7 @@ view model =
     <|
         row [ width fill, height fill ]
             [ editorPanel model.editor
-            , sidePanel (Editor.getFocusedTag model.editor)
+            , sidePanel (Editor.getFocusedTag model.editor) model.mode
             ]
 
 
@@ -131,8 +184,8 @@ editorPanel editor =
         Editor.view editor
 
 
-sidePanel : String -> Element msg
-sidePanel tag =
+sidePanel : String -> Mode -> Element msg
+sidePanel tag mode =
     column
         [ Border.solid
         , Border.width 1
@@ -147,4 +200,8 @@ sidePanel tag =
         , alignRight
         , Element.padding 5
         ]
-        [ text "focus:", text tag ]
+        [ text "focus:"
+        , text tag
+        , text "mode:"
+        , text (Debug.toString mode)
+        ]
