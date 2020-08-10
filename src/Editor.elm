@@ -1,7 +1,7 @@
 module Editor exposing (..)
 
 import Action exposing (Action(..))
-import Dict
+import Dict exposing (Dict)
 import Element exposing (Element, alignTop, column, el, explain, paddingEach, rgb255, row, spacing, text)
 import Element.Background as Background
 import Element.Font as Font
@@ -29,7 +29,7 @@ import Tree.Zipper as Zipper exposing (Zipper)
 
 type alias Editor =
     { nextId : Int
-    , zipper : Zipper Node
+    , zipper : Cursor
     }
 
 
@@ -42,6 +42,10 @@ type alias Node =
 
 type alias Ast =
     Tree Node
+
+
+type alias Cursor =
+    Zipper Node
 
 
 example : String
@@ -127,7 +131,9 @@ init =
             [ LastChild
             , FirstChild
             , NextSibling
-            , LastChild
+            , NextSibling
+            , NextSibling
+            , NextSibling
             ]
 
 
@@ -206,6 +212,7 @@ step action { nextId, zipper } =
                 |> Editor nextId
 
 
+swapWith : (Cursor -> Maybe Cursor) -> Cursor -> Maybe Cursor
 swapWith f zipper =
     let
         swapTwoTrees t1 t2 t =
@@ -228,10 +235,12 @@ swapWith f zipper =
             )
 
 
+zipperId : Cursor -> Int
 zipperId =
     Zipper.label >> .id
 
 
+treeId : Ast -> Int
 treeId =
     Tree.label >> .id
 
@@ -262,6 +271,7 @@ type Constraint
     | AtLeast Int String
 
 
+definitions : Dict String (List Constraint)
 definitions =
     let
         one =
@@ -282,10 +292,12 @@ definitions =
         ]
 
 
+hole : Node
 hole =
     Node 0 "" "hole"
 
 
+holeT : Ast
 holeT =
     Tree.singleton hole
 
@@ -372,27 +384,18 @@ viewTree selected tree =
             ( "constructor", _ ) ->
                 line (List.map go children)
 
-            ( "constructors", _ ) ->
-                column [] (List.map go children)
+            ( "constructors", c :: cs ) ->
+                column [] <|
+                    line [ token "=", go c ]
+                        :: List.map (\e -> line [ token "|", go e ]) cs
 
             ( "generics", _ ) ->
                 line (List.map go children)
 
-            ( "type", name :: generics :: [ constructors ] ) ->
-                let
-                    ( c, cs ) =
-                        case Tree.children constructors of
-                            x :: xs ->
-                                ( x, xs )
-
-                            _ ->
-                                Debug.todo ""
-                in
+            ( "type", [ name, generics, constructors ] ) ->
                 column []
                     [ line [ keyword "type", go name, go generics ]
-                    , block <|
-                        line [ token "=", go c ]
-                            :: List.map (\e -> line [ token "|", go e ]) cs
+                    , indented <| go constructors
                     ]
 
             ( "type-alias", [ name, generics, type_ ] ) ->
@@ -426,10 +429,13 @@ viewTree selected tree =
             ( "branch", [ l, r ] ) ->
                 line [ go l, token "->", go r ]
 
-            ( "case-of", name :: branches ) ->
+            ( "branches", _ ) ->
+                column [] <| List.map go children
+
+            ( "case-of", [ name, branches ] ) ->
                 column [] <|
                     [ line [ keyword "case", go name, keyword "of" ]
-                    , block <| List.map go branches
+                    , indented <| go branches
                     ]
 
             ( "function-type", [ l, r ] ) ->
@@ -647,7 +653,7 @@ processRawFile rawFile =
                         f ( pattern, exp ) =
                             node "branch" [ processPattern (N.value pattern), processExpression (N.value exp) ]
                     in
-                    node "case-of" (processExpression (N.value expression) :: List.map f cases)
+                    node "case-of" [ processExpression (N.value expression), node "branches" <| List.map f cases ]
 
                 LambdaExpression { args, expression } ->
                     node "lambda" (List.map (N.value >> processPattern) args ++ [ processExpression (N.value expression) ])
