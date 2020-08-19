@@ -71,7 +71,7 @@ keyActionMap =
         , ( "L", SwapRight )
         , ( "H", SwapLeft )
         , ( "r", ReverseChildren )
-        , ( "a", AddNode "hole" )
+        , ( "a", AddNode "branch" )
         ]
 
 
@@ -99,18 +99,10 @@ update msg model =
                     in
                     case key of
                         "i" ->
-                            ( { model
-                                | mode = Insert ""
-                              }
-                            , Cmd.none
-                            )
+                            ( { model | mode = Insert "" }, Cmd.none )
 
                         _ ->
-                            ( { model
-                                | editor = newEditor
-                              }
-                            , Cmd.none
-                            )
+                            ( { model | editor = newEditor }, Cmd.none )
 
                 Insert string ->
                     case keyboardEvent.keyCode of

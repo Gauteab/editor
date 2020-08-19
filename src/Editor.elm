@@ -1,6 +1,7 @@
 module Editor exposing (..)
 
 import Action exposing (Action(..))
+import Bool.Extra
 import Dict exposing (Dict)
 import Element exposing (Element, alignTop, column, el, explain, paddingEach, rgb255, row, spacing, text)
 import Element.Background as Background
@@ -19,6 +20,7 @@ import Elm.Syntax.Signature exposing (Signature)
 import Elm.Syntax.Type exposing (ValueConstructor)
 import Elm.Syntax.TypeAnnotation exposing (TypeAnnotation(..))
 import Maybe exposing (Maybe)
+import Maybe.Extra
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
 
@@ -124,7 +126,8 @@ init =
         ( i, tree ) =
             parse example
                 |> relabel 0
-                |> Debug.log "tree"
+
+        --|> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
         |> steps
@@ -134,6 +137,11 @@ init =
             , NextSibling
             , NextSibling
             , NextSibling
+            , LastChild
+            , LastChild
+            , LastChild
+            , LastChild
+            , Delete
             ]
 
 
@@ -152,7 +160,11 @@ steps actions editor =
 
 
 step : Action -> Editor -> Editor
-step action { nextId, zipper } =
+step action e =
+    let
+        { nextId, zipper } =
+            e
+    in
     case action of
         SelectParent ->
             Editor nextId (Zipper.parent zipper |> Maybe.withDefault zipper)
@@ -170,7 +182,25 @@ step action { nextId, zipper } =
             Editor nextId (Zipper.lastChild zipper |> Maybe.withDefault zipper)
 
         Delete ->
-            Editor nextId <| Debug.todo ""
+            let
+                createHole e_ =
+                    { e_
+                        | nextId = nextId + 1
+                        , zipper =
+                            Zipper.replaceTree
+                                (Tree.singleton <| Node nextId "" "hole")
+                                zipper
+                    }
+            in
+            case Zipper.removeTree zipper of
+                Nothing ->
+                    createHole e
+
+                Just z ->
+                    zipperValidate z
+                        |> Result.map (Editor nextId)
+                        |> Result.mapError (Debug.log "error")
+                        |> Result.withDefault (createHole e)
 
         InsertText s ->
             if List.isEmpty <| Zipper.children zipper then
@@ -181,14 +211,8 @@ step action { nextId, zipper } =
                 Debug.todo "Inserted text into non-leaf node"
 
         AddNode s ->
-            case newNode s of
-                Just ast ->
-                    zipper
-                        |> Zipper.append (Debug.log "ast" ast)
-                        |> Editor (nextId + 2)
-
-                Nothing ->
-                    Editor nextId zipper
+            editorNewNode e s
+                |> Result.withDefault e
 
         Lift ->
             Zipper.parent zipper
@@ -262,21 +286,29 @@ relabel initial tree =
 -}
 
 
-type alias Definition =
-    List Constraint
+type alias Schema =
+    Dict String Constraint
 
 
 type Constraint
-    = Exactly Int String
+    = Exactly (List String)
     | AtLeast Int String
+      --| Hole
+    | OneOf (List String)
 
 
-definitions : Dict String (List Constraint)
-definitions =
+type alias ValidationResult a =
+    Result ValidationError a
+
+
+type ValidationError
+    = UnknownTag String
+    | ConstraintViolation String Constraint
+
+
+schema : Schema
+schema =
     let
-        one =
-            Exactly 1
-
         many =
             AtLeast 0
 
@@ -284,11 +316,14 @@ definitions =
             AtLeast 1
     in
     Dict.fromList <|
-        [ ( "list", [ many "expression" ] )
-        , ( "case", [ some "branch" ] )
-        , ( "branch", [ one "pattern", one "expression" ] )
-        , ( "assignment", [ one "name", one "expression" ] )
-        , ( "hole", [] )
+        [ ( "list", many "expression" )
+        , ( "case-of", Exactly [ "name", "branches" ] )
+        , ( "branch", Exactly [ "pattern", "expression" ] )
+        , ( "assignment", Exactly [ "name", "expression" ] )
+        , ( "branches", some "branch" )
+
+        --, ( "hole", Hole )
+        , ( "expression", OneOf [ "list", "case" ] )
         ]
 
 
@@ -302,25 +337,95 @@ holeT =
     Tree.singleton hole
 
 
-newNode : String -> Maybe Ast
+editorNewNode : Editor -> String -> ValidationResult Editor
+editorNewNode e s =
+    newNode s
+        |> Result.map (relabel e.nextId)
+        |> Result.andThen
+            (\( id, new ) ->
+                e.zipper
+                    |> Zipper.append new
+                    |> zipperValidate
+                    |> Result.map (Editor id)
+            )
+
+
+newNode : String -> ValidationResult Ast
 newNode name =
-    Dict.get name definitions
+    Dict.get name schema
         |> Maybe.map (generate name)
+        |> Result.fromMaybe (UnknownTag name)
 
 
-generate : String -> Definition -> Ast
-generate name definition =
-    let
-        f constraint =
-            case constraint of
-                Exactly n _ ->
-                    List.repeat n holeT
+isValid : Ast -> Constraint -> Bool
+isValid ast constraint =
+    case constraint of
+        Exactly strings ->
+            (List.length strings == List.length (Tree.children ast))
+                && (List.map (Tree.label >> .tag) (Tree.children ast)
+                        |> List.map2 (==) strings
+                        |> List.all identity
+                   )
 
-                AtLeast n _ ->
-                    List.repeat n holeT
-    in
-    Tree.tree (Node 0 "" name) <|
-        List.concatMap f definition
+        AtLeast int string ->
+            (List.length (Tree.children ast) >= int)
+                && List.all (Tree.label >> .tag >> (==) string) (Tree.children ast)
+
+        OneOf strings ->
+            List.member (Tree.label ast).tag strings
+
+
+
+--cursorParentValidate z =
+--    case Zipper.parent z of
+--        Just p ->
+--            zipperValidate p
+--
+--        Nothing ->
+--            Ok z
+
+
+cursorTag =
+    Zipper.tree >> Tree.label >> .tag
+
+
+zipperValidate : Cursor -> ValidationResult Cursor
+zipperValidate cursor =
+    Dict.get (cursorTag cursor) schema
+        |> Result.fromMaybe (UnknownTag <| cursorTag cursor)
+        |> Result.andThen (\s -> zipperValidate_ s cursor)
+
+
+zipperValidate_ : Constraint -> Cursor -> ValidationResult Cursor
+zipperValidate_ constraint cursor =
+    astValidate constraint (Zipper.tree cursor)
+        |> Result.map (always cursor)
+
+
+astValidate : Constraint -> Ast -> ValidationResult Ast
+astValidate constraint ast =
+    if isValid ast constraint then
+        Ok ast
+
+    else
+        Err (ConstraintViolation (Tree.label ast).tag constraint)
+
+
+generate : String -> Constraint -> Ast
+generate name constraint =
+    case constraint of
+        Exactly cs ->
+            node name <|
+                List.map (newNode >> Result.withDefault holeT) cs
+
+        AtLeast n _ ->
+            node name <|
+                List.repeat n holeT
+
+        --Hole ->
+        --    holeT
+        OneOf _ ->
+            holeT
 
 
 
@@ -366,17 +471,19 @@ viewTree selected tree =
         block =
             indented << lines
 
-        attributes =
+        highlighted e =
             if label.id == selected then
-                [ Background.color (rgb255 138 217 235)
+                el
+                    [ Background.color (rgb255 138 217 235)
 
-                --, explain Debug.todo
-                ]
+                    --, explain Debug.todo
+                    ]
+                    e
 
             else
-                []
+                e
     in
-    el attributes <|
+    highlighted <|
         case ( label.tag, children ) of
             ( "type-arguments", _ ) ->
                 line (List.map go children)
@@ -461,7 +568,11 @@ viewTree selected tree =
                 column [] (List.map go children)
 
             ( "arguments", _ ) ->
-                line (List.map go children)
+                if List.isEmpty children then
+                    Element.none
+
+                else
+                    line (List.map go children)
 
             ( "function-definition", [ name, arguments, expression ] ) ->
                 column [] <|
@@ -508,21 +619,20 @@ viewTree selected tree =
                 el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\""
 
             _ ->
-                el [ explain Debug.todo ] <|
-                    if not <| List.isEmpty children then
-                        column []
-                            [ text <| label.tag ++ ":"
-                            , row []
-                                [ text "  "
-                                , column [] <| List.map (viewTree selected) children
-                                ]
+                if not <| List.isEmpty children then
+                    column []
+                        [ text <| label.tag ++ ":"
+                        , row []
+                            [ text "  "
+                            , column [] <| List.map (viewTree selected) children
                             ]
+                        ]
 
-                    else if label.tag == "hole" then
-                        text "hole"
+                else if label.tag == "hole" then
+                    text "hole"
 
-                    else
-                        text (label.tag ++ ": " ++ label.text)
+                else
+                    text (label.tag ++ ": " ++ label.text)
 
 
 
@@ -539,15 +649,17 @@ parse input =
             processRawFile v
 
 
+node v =
+    Tree.tree (Node 0 "" v)
+
+
+leaf t v =
+    Tree.singleton (Node 0 v t)
+
+
 processRawFile : Elm.RawFile.RawFile -> Tree Node
 processRawFile rawFile =
     let
-        node v =
-            Tree.tree (Node 0 "" v)
-
-        leaf t v =
-            Tree.singleton (Node 0 v t)
-
         file : File
         file =
             Processing.process Processing.init rawFile
@@ -695,10 +807,6 @@ processRawFile rawFile =
                     Debug.todo ""
 
                 Typed (N.Node _ ( moduleName, name )) annotations ->
-                    let
-                        x =
-                            Debug.log "" annotations
-                    in
                     node "typed" [ leaf "name" name ]
 
                 Unit ->
