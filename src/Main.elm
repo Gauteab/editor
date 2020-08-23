@@ -4,15 +4,19 @@ import Action exposing (Action(..))
 import Browser
 import Browser.Events
 import Dict
-import Editor exposing (Editor)
+import Editor exposing (Ast, Editor, Node)
 import Element exposing (Element, alignRight, column, el, explain, fill, fillPortion, height, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
-import Json.Decode
+import Http
+import Json.Decode as Decode exposing (Decoder)
+import Json.Decode.Pipeline exposing (optional, required)
+import Json.Encode as Encode
 import Keyboard.Event exposing (KeyboardEvent, decodeKeyboardEvent)
 import Keyboard.Key as Key
+import Tree
 
 
 
@@ -46,8 +50,28 @@ type Mode
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( Model Editor.init Normal
-    , Cmd.none
+    , Http.post
+        { url = "http://localhost:8081"
+        , body =
+            Http.jsonBody <|
+                Encode.object
+                    --[ ( "language", Encode.string "elm" ), ( "source", Encode.string Editor.example ) ]
+                    [ ( "language", Encode.string "json" ), ( "source", Encode.string """{"field":{"name":"John"}, "numbers":[1, 2, 3]}""" ) ]
+        , expect = Http.expectJson ParseResponse decoder
+        }
     )
+
+
+decoder : Decoder Ast
+decoder =
+    let
+        f tag text_ children =
+            Tree.tree (Node 0 text_ tag) children
+    in
+    Decode.succeed f
+        |> required "tag" Decode.string
+        |> optional "text" Decode.string ""
+        |> optional "children" (Decode.lazy (\_ -> Decode.list decoder)) []
 
 
 
@@ -57,6 +81,7 @@ init _ =
 type Msg
     = NoOp
     | KeyboardEvent KeyboardEvent
+    | ParseResponse (Result Http.Error Ast)
 
 
 keyActionMap =
@@ -78,6 +103,14 @@ keyActionMap =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ParseResponse response ->
+            case response of
+                Ok ast ->
+                    ( { model | editor = Editor.fromAst (Debug.log "ast" ast) }, Cmd.none )
+
+                Err e ->
+                    Debug.todo (Debug.toString e)
+
         NoOp ->
             ( model, Cmd.none )
 
@@ -141,7 +174,7 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Browser.Events.onKeyDown <| Json.Decode.map KeyboardEvent decodeKeyboardEvent
+    Browser.Events.onKeyDown <| Decode.map KeyboardEvent decodeKeyboardEvent
 
 
 

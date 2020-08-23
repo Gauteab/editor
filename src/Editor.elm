@@ -1,9 +1,8 @@
 module Editor exposing (..)
 
 import Action exposing (Action(..))
-import Bool.Extra
 import Dict exposing (Dict)
-import Element exposing (Element, alignTop, column, el, explain, paddingEach, rgb255, row, spacing, text)
+import Element exposing (Element, alignTop, column, el, paddingEach, rgb255, row, spacing, text)
 import Element.Background as Background
 import Element.Font as Font
 import Elm.Parser
@@ -20,7 +19,6 @@ import Elm.Syntax.Signature exposing (Signature)
 import Elm.Syntax.Type exposing (ValueConstructor)
 import Elm.Syntax.TypeAnnotation exposing (TypeAnnotation(..))
 import Maybe exposing (Maybe)
-import Maybe.Extra
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
 
@@ -48,6 +46,15 @@ type alias Ast =
 
 type alias Cursor =
     Zipper Node
+
+
+fromAst : Ast -> Editor
+fromAst ast =
+    let
+        ( i, a ) =
+            relabel 0 ast
+    in
+    Editor i (Zipper.fromTree a)
 
 
 example : String
@@ -615,9 +622,8 @@ viewTree selected tree =
             ( "assignment", [ l, r ] ) ->
                 line [ go l, token "=", go r ]
 
-            ( "string", _ ) ->
-                el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\""
-
+            --( "string", _ ) ->
+            --    el [ Font.color (rgb255 113 140 0) ] <| text <| "\"" ++ label.text ++ "\""
             _ ->
                 if not <| List.isEmpty children then
                     column []
