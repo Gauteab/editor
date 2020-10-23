@@ -3,9 +3,9 @@ module Main exposing (main)
 import Action exposing (Action(..))
 import Browser
 import Browser.Events
-import Dict
+import Dict exposing (Dict)
 import Editor exposing (Ast, Editor, Node)
-import Element exposing (Element, alignRight, column, el, explain, fill, fillPortion, height, row, text, width)
+import Element exposing (Element, alignRight, column, el, fill, fillPortion, height, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
@@ -23,6 +23,7 @@ import Tree
 -- MAIN
 
 
+main : Program () Model Msg
 main =
     Browser.element
         { init = init
@@ -47,6 +48,12 @@ type Mode
     | Insert String
 
 
+minimalExample : String
+minimalExample =
+    """module Main.Extra exposing (..)
+"""
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( Model Editor.init Normal
@@ -55,7 +62,7 @@ init _ =
         , body =
             Http.jsonBody <|
                 Encode.object
-                    --[ ( "language", Encode.string "elm" ), ( "source", Encode.string Editor.example ) ]
+                    --[ ( "language", Encode.string "elm" ), ( "source", Encode.string minimalExample ) ]
                     [ ( "language", Encode.string "json" ), ( "source", Encode.string """{"field":{"name":"John"}, "numbers":[1, 2, 3]}""" ) ]
         , expect = Http.expectJson ParseResponse decoder
         }
@@ -64,11 +71,7 @@ init _ =
 
 decoder : Decoder Ast
 decoder =
-    let
-        f tag text_ children =
-            Tree.tree (Node 0 text_ tag) children
-    in
-    Decode.succeed f
+    Decode.succeed (\tag text_ children -> Tree.tree (Node 0 text_ tag) children)
         |> required "tag" Decode.string
         |> optional "text" Decode.string ""
         |> optional "children" (Decode.lazy (\_ -> Decode.list decoder)) []
@@ -84,6 +87,7 @@ type Msg
     | ParseResponse (Result Http.Error Ast)
 
 
+keyActionMap : Dict String Action
 keyActionMap =
     Dict.fromList <|
         [ ( "j", FirstChild )
@@ -91,6 +95,8 @@ keyActionMap =
         , ( "h", PreviousSibling )
         , ( "l", NextSibling )
         , ( "w", LastChild )
+        , ( "f", Forward )
+        , ( "b", Backward )
         , ( "d", Delete )
         , ( "K", Lift )
         , ( "L", SwapRight )
@@ -106,7 +112,8 @@ update msg model =
         ParseResponse response ->
             case response of
                 Ok ast ->
-                    ( { model | editor = Editor.fromAst (Debug.log "ast" ast) }, Cmd.none )
+                    -- ( { model | editor = Editor.fromAst (Debug.log "ast" ast) }, Cmd.none )
+                    ( model, Cmd.none )
 
                 Err e ->
                     Debug.todo (Debug.toString e)
@@ -173,7 +180,7 @@ update msg model =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Browser.Events.onKeyDown <| Decode.map KeyboardEvent decodeKeyboardEvent
 
 

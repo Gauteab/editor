@@ -133,22 +133,23 @@ init =
         ( i, tree ) =
             parse example
                 |> relabel 0
+                |> Debug.log "ast"
 
         --|> Debug.log "tree"
     in
     Editor i (Zipper.fromTree tree)
         |> steps
-            [ LastChild
-            , FirstChild
-            , NextSibling
-            , NextSibling
-            , NextSibling
-            , NextSibling
-            , LastChild
-            , LastChild
-            , LastChild
-            , LastChild
-            , Delete
+            [-- LastChild
+             -- , FirstChild
+             -- , NextSibling
+             -- , NextSibling
+             -- , NextSibling
+             -- , NextSibling
+             -- , LastChild
+             -- , LastChild
+             -- , LastChild
+             -- , LastChild
+             -- , Delete
             ]
 
 
@@ -187,6 +188,12 @@ step action e =
 
         LastChild ->
             Editor nextId (Zipper.lastChild zipper |> Maybe.withDefault zipper)
+
+        Forward ->
+            Editor nextId (Zipper.forward zipper |> Maybe.withDefault zipper)
+
+        Backward ->
+            Editor nextId (Zipper.backward zipper |> Maybe.withDefault zipper)
 
         Delete ->
             let
@@ -445,7 +452,115 @@ view editor =
         tree =
             Zipper.tree editor.zipper
     in
-    viewTree (Tree.label tree).id (Zipper.tree <| Zipper.root editor.zipper)
+    viewTSTree (Tree.label tree).id (Zipper.tree <| Zipper.root editor.zipper)
+
+
+viewTSTree : Int -> Ast -> Element msg
+viewTSTree selected tree =
+    let
+        go =
+            viewTSTree selected
+
+        children =
+            Tree.children tree
+
+        label =
+            Tree.label tree
+
+        token =
+            el [ alignTop ] << text
+
+        keyword =
+            el [ alignTop, Font.color (rgb255 136 89 168) ] << text
+
+        line =
+            row [ spacing 10 ]
+
+        lines =
+            column []
+
+        indented =
+            el [ paddingEach { left = 20, right = 0, top = 0, bottom = 0 } ]
+
+        block =
+            indented << lines
+
+        listLike start end separator list =
+            case list of
+                [] ->
+                    token (start ++ end)
+
+                --[ x ] ->
+                --    line [ token start, go x, token end ]
+                x :: xs ->
+                    column [] <|
+                        List.concat <|
+                            [ [ line [ token start, go x ] ]
+                            , List.map (\e -> line [ token separator, go e ]) xs
+                            , [ token end ]
+                            ]
+
+        highlighted e =
+            if label.id == selected then
+                el
+                    [ Background.color (rgb255 138 217 235)
+
+                    --, explain Debug.todo
+                    , alignTop
+                    ]
+                    e
+
+            else
+                e
+    in
+    highlighted <|
+        case ( label.tag, children ) of
+            ( "document", _ ) ->
+                column [] (List.map go children)
+
+            ( "object", _ ) ->
+                listLike "{" "}" "," children
+
+            ( "pair", [ key, value ] ) ->
+                line [ go key, token ":", go value ]
+
+            ( "array", _ ) ->
+                listLike "[" "]" "," children
+
+            ( "string", [ content ] ) ->
+                row [ alignTop, Font.color (rgb255 113 140 0) ] [ text "\"", go content, text "\"" ]
+
+            ( "string_content", _ ) ->
+                text label.text
+
+            ( "number", _ ) ->
+                el [ Font.color (rgb255 244 135 30) ] <| text label.text
+
+            --( "file", _ ) ->
+            --    column [] (List.map go children)
+            --( "module_declaration", [ module_, qid, exposing_list ] ) ->
+            --    line [ keyword "module", go qid, go exposing_list ]
+            --
+            --( "upper_case_qid", _ ) ->
+            --    List.map (Tree.label >> .text) children |> String.join "" |> text
+            --
+            --( "exposing_list", [ _, _, e, _ ] ) ->
+            --    line [ keyword "exposing", token "(", go e, token ")" ]
+            _ ->
+                if not <| List.isEmpty children then
+                    column []
+                        [ text <| label.tag ++ ":"
+                        , row []
+                            [ text "  "
+                            , column [] <| List.map go children
+                            ]
+                        ]
+
+                else if label.tag == "hole" then
+                    text "hole"
+
+                else
+                    text (label.tag ++ ": " ++ label.text)
 
 
 viewTree : Int -> Ast -> Element msg

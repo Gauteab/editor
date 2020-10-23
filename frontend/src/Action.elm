@@ -8,6 +8,8 @@ type Action
     | PreviousSibling
     | FirstChild
     | LastChild
+    | Forward
+    | Backward
       -- Editing
     | Delete
     | InsertText String
