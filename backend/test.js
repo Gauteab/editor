@@ -1,0 +1,12 @@
+const Parser = require("tree-sitter");
+const Json = require("./parsers/tree-sitter-javascript");
+const parser = new Parser();
+parser.setLanguage(Json);
+const tree = parser.parse("[1, 2]");
+const { Query } = Parser;
+const query = new Query(Json, "(number) @n");
+const matches = query.matches(tree.rootNode);
+const captures = query.captures(tree.rootNode);
+console.log(matches);
+console.log(captures);
+console.log(tree.rootNode.toString());
